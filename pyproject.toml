@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "image-coordinate-editor"
+version = "0.1.0"
+description = "GUI for defining and embedding coordinate systems in PNG images"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "Pillow>=10.0",
+    "sv-ttk>=2.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+image-coordinate-editor = "image_coordinate_editor.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
