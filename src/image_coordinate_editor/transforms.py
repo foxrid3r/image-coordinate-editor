@@ -30,7 +30,12 @@ def calculate_affine_coefficients(system: dict[str, Any]) -> AffineCoefficients 
 
     for point_name in POINT_NAMES:
         point = system[point_name]
-        values = (point.get("pixel_x"), point.get("pixel_y"), point.get("world_x"), point.get("world_y"))
+        values = (
+            point.get("pixel_x"),
+            point.get("pixel_y"),
+            point.get("world_x"),
+            point.get("world_y"),
+        )
         if any(value is None for value in values):
             return None
         px, py, wx, wy = map(float, values)

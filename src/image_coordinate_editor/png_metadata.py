@@ -26,9 +26,15 @@ def read_coordinate_metadata(image: Image.Image) -> list[dict[str, Any]]:
     try:
         payload = json.loads(raw)
     except (TypeError, json.JSONDecodeError) as exc:
-        raise ValueError(f'The PNG contains "{METADATA_KEY}", but it is not valid JSON.\n\n{exc}') from exc
+        raise ValueError(
+            f'The PNG contains "{METADATA_KEY}", but it is not valid JSON.\n\n{exc}'
+        ) from exc
 
-    systems = payload.get("coordinate_systems", []) if isinstance(payload, dict) else payload if isinstance(payload, list) else []
+    systems = (
+        payload.get("coordinate_systems", [])
+        if isinstance(payload, dict)
+        else payload if isinstance(payload, list) else []
+    )
     if not isinstance(systems, list):
         return []
     return [
@@ -72,7 +78,13 @@ def write_png_with_metadata(source_path: Path, output_path: Path, payload: dict[
                     pnginfo.add_itxt(key, value.decode("utf-8"))
                 except UnicodeDecodeError:
                     pass
-        pnginfo.add_itxt(METADATA_KEY, payload_json, lang="en", tkey="Coordinate Systems JSON", zip=True)
+        pnginfo.add_itxt(
+            METADATA_KEY,
+            payload_json,
+            lang="en",
+            tkey="Coordinate Systems JSON",
+            zip=True,
+        )
         save_kwargs: dict[str, Any] = {"format": "PNG", "pnginfo": pnginfo}
         for key in ("exif", "icc_profile", "dpi"):
             if key in original.info:
@@ -81,7 +93,12 @@ def write_png_with_metadata(source_path: Path, output_path: Path, payload: dict[
         output_path = output_path.resolve()
         source_path = source_path.resolve()
         if output_path == source_path:
-            with tempfile.NamedTemporaryFile(prefix=f".{output_path.stem}_", suffix=".png", dir=output_path.parent, delete=False) as temporary_file:
+            with tempfile.NamedTemporaryFile(
+                prefix=f".{output_path.stem}_",
+                suffix=".png",
+                dir=output_path.parent,
+                delete=False,
+            ) as temporary_file:
                 temporary_path = Path(temporary_file.name)
             try:
                 original.save(temporary_path, **save_kwargs)

@@ -44,7 +44,7 @@ import math
 import tkinter as tk
 from dataclasses import dataclass
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from PIL import Image, ImageTk
@@ -149,7 +149,9 @@ class PngCoordinateEditor:
         self.interaction_settle_job: str | None = None
         self.interaction_active = False
         self._affine_cache_key: tuple[Any, ...] | None = None
-        self._affine_cache_coefficients: tuple[float, float, float, float, float, float] | None = None
+        self._affine_cache_coefficients: (
+            tuple[float, float, float, float, float, float] | None
+        ) = None
 
         # Persistent image-view state. A None scale is used only briefly
         # after loading an image. The first redraw calculates and stores a
@@ -392,7 +394,10 @@ class PngCoordinateEditor:
 
         ttk.Label(
             instruction_frame,
-            text="Wheel: zoom  •  Middle-drag: pan  •  Ctrl+0: fit  •  Ctrl+1: 100%  •  Esc: cancel",
+            text=(
+                "Wheel: zoom  •  Middle-drag: pan  •  Ctrl+0: fit  •  "
+                "Ctrl+1: 100%  •  Esc: cancel"
+            ),
             style="Muted.TLabel",
         ).grid(row=0, column=1, padx=(12, 0))
 
@@ -1323,8 +1328,14 @@ class PngCoordinateEditor:
             # rejects with "box can't exceed original image size".
             box_left = max(0.0, min(visible_left / reduction_x, float(pyramid_image.width)))
             box_top = max(0.0, min(visible_top / reduction_y, float(pyramid_image.height)))
-            box_right = max(box_left, min(visible_right / reduction_x, float(pyramid_image.width)))
-            box_bottom = max(box_top, min(visible_bottom / reduction_y, float(pyramid_image.height)))
+            box_right = max(
+                box_left,
+                min(visible_right / reduction_x, float(pyramid_image.width)),
+            )
+            box_bottom = max(
+                box_top,
+                min(visible_bottom / reduction_y, float(pyramid_image.height)),
+            )
             box = (box_left, box_top, box_right, box_bottom)
             render_width = max(1, int(math.ceil((visible_right - visible_left) * scale)))
             render_height = max(1, int(math.ceil((visible_bottom - visible_top) * scale)))

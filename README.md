@@ -1,24 +1,20 @@
 # Image Coordinate Editor
 
-A desktop GUI for defining one or more real-world coordinate systems in PNG images and storing them as embedded JSON metadata.
+A small desktop app for adding coordinate systems to PNG images.
 
-## Features
+## What it does
 
-- Select origin, X-reference, and Y-reference points
-- Define matching real-world coordinates
-- Automatically derive a perpendicular Y axis
-- Display live pixel and world coordinates
-- Support multiple named coordinate systems
-- Zoom, pan, fit, and inspect large PNG images
-- Embed coordinate data in a PNG iTXt metadata chunk
-- Preserve existing PNG text metadata, EXIF, ICC profile, and DPI where practical
+- Lets you choose an image
+- Lets you place an origin, X point, and Y point
+- Saves matching real-world coordinates
+- Stores the coordinate data inside the PNG as metadata
 
 ## Requirements
 
-- Python 3.11 or newer
-- Windows, Linux, or macOS with Tkinter available
+- Python 3.11+
+- Tkinter available on your system
 
-## Setup
+## Install
 
 ```powershell
 python -m venv .venv
@@ -33,30 +29,39 @@ pip install -e ".[dev]"
 image-coordinate-editor
 ```
 
-Alternatively:
+Or:
 
 ```powershell
 python -m image_coordinate_editor
 ```
 
-## Tests and linting
+## Examples
+
+Sample PNG images are in the [examples/images](examples/images) folder.
+
+### Screenshots
+
+![Startup screen](docs/screenshots/startup.png)
+
+![Block with holes](docs/screenshots/block-with-holes.png)
+
+![Block with holes perspective](docs/screenshots/block-with-holes-perspective.png)
+
+## Tests
 
 ```powershell
 pytest
-ruff check .
 ```
 
-## Project structure
+## Project layout
 
 ```text
 src/image_coordinate_editor/
-├── app.py           # Tkinter GUI and image preview behavior
-├── models.py        # Coordinate-system data helpers
-├── transforms.py    # Pure affine coordinate math
-├── png_metadata.py  # PNG metadata reading and writing
-└── __main__.py      # Application entry point
+├── __main__.py
+├── app.py
+├── models.py
+├── png_metadata.py
+└── transforms.py
 ```
 
-## Embedded metadata
-
-Coordinate-system data is stored as JSON in the PNG iTXt field `coordinate_systems_json`. Pixel coordinates use a top-left origin, X increasing right, and Y increasing down.
+This project uses a simple `src` layout so the package is easy to understand and install.
