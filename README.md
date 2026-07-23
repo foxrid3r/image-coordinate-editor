@@ -39,13 +39,51 @@ python -m image_coordinate_editor
 
 Sample PNG images are in the [examples/images](examples/images) folder.
 
+A sample metadata payload is available in [examples/sample_coordinate_metadata.json](examples/sample_coordinate_metadata.json). The app stores this JSON in the PNG iTXt field `coordinate_systems_json`.
+
+### Coordinate metadata format
+
+Each coordinate system defines three points:
+
+- `origin`: the world-space reference point
+- `x_point`: a second point that defines the positive X direction
+- `y_point`: a third point that defines the positive Y direction
+
+Each point stores both image pixel coordinates and world coordinates:
+
+```json
+{
+  "name": "coordinate_system_1",
+  "origin": {
+    "pixel_x": 100,
+    "pixel_y": 100,
+    "world_x": 0.0,
+    "world_y": 0.0
+  },
+  "x_point": {
+    "pixel_x": 300,
+    "pixel_y": 100,
+    "world_x": 1.0,
+    "world_y": 0.0
+  },
+  "y_point": {
+    "pixel_x": 100,
+    "pixel_y": 300,
+    "world_x": 0.0,
+    "world_y": 1.0
+  }
+}
+```
+
+The metadata payload uses a top-left pixel origin, X increasing to the right, and Y increasing downward.
+
 ### Screenshots
 
 ![Startup screen](docs/screenshots/startup.png)
 
 ![Block with holes](docs/screenshots/block-with-holes.png)
 
-![Block with holes perspective](docs/screenshots/block-with-holes-perspective.png)
+![Block with holes rotated](docs/screenshots/block-with-holes-rotated.png)
 
 ## Tests
 
