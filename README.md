@@ -5,7 +5,9 @@ A small desktop app for adding coordinate systems to PNG images.
 ## What it does
 
 - Lets you choose an image
-- Lets you place an origin, X point, and Y point
+- Lets you place an origin, X point, Y point, and any number of additional
+  reference points
+- Supports perspective calibration of a 2D plane and full 3D camera calibration
 - Saves matching real-world coordinates
 - Stores the coordinate data inside the PNG as metadata
 
@@ -43,7 +45,7 @@ A sample metadata payload is available in [examples/sample_coordinate_metadata.j
 
 ### Coordinate metadata format
 
-Each coordinate system defines three points:
+Each coordinate system begins with three points:
 
 - `origin`: the world-space reference point
 - `x_point`: a second point that defines the positive X direction
@@ -58,21 +60,50 @@ Each point stores both image pixel coordinates and world coordinates:
     "pixel_x": 100,
     "pixel_y": 100,
     "world_x": 0.0,
-    "world_y": 0.0
+    "world_y": 0.0,
+    "world_z": 0.0
   },
   "x_point": {
     "pixel_x": 300,
     "pixel_y": 100,
     "world_x": 1.0,
-    "world_y": 0.0
+    "world_y": 0.0,
+    "world_z": 0.0
   },
   "y_point": {
     "pixel_x": 100,
     "pixel_y": 300,
     "world_x": 0.0,
-    "world_y": 1.0
-  }
+    "world_y": 1.0,
+    "world_z": 0.0
+  },
+  "extra_points": []
 }
+```
+
+Four or more coplanar correspondences provide a perspective-correct mapping
+for that plane. To project arbitrary 3D data, provide at least six
+well-distributed, non-coplanar points with known X, Y, and Z values. Existing
+metadata without `world_z` remains valid and is interpreted as Z = 0.
+
+### Plotting 3D points
+
+The runnable example in
+[`examples/plot_3d_points.py`](examples/plot_3d_points.py) reads the coordinate
+system embedded in `examples/images/block-with-holes-perspective.png`, uses it
+directly to project five new 3D data points, and draws them over the image. The
+example does not define or replace the image's calibration:
+
+```powershell
+.\.venv314\Scripts\python.exe examples\plot_3d_points.py
+```
+
+It creates `examples/output/perspective-points-plotted.png` and prints each
+projected pixel coordinate. You can also supply a different metadata-bearing
+input PNG and output path:
+
+```powershell
+.\.venv314\Scripts\python.exe examples\plot_3d_points.py input.png output.png
 ```
 
 The metadata payload uses a top-left pixel origin, X increasing to the right, and Y increasing downward.
