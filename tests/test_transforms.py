@@ -30,3 +30,26 @@ def test_collinear_pixel_points_are_invalid():
     system = identity_system()
     system["y_point"].update(pixel_x=200, pixel_y=0)
     assert calculate_affine_coefficients(system) is None
+
+
+def test_perspective_transform_uses_reference_point():
+    from image_coordinate_editor.models import blank_point
+
+    system = identity_system()
+    reference = blank_point()
+    reference.update(pixel_x=100, pixel_y=100, world_x=80, world_y=80)
+    system["reference_points"].append(reference)
+    result, coefficients = pixel_to_world(system, 100, 100)
+    assert result == pytest.approx((80, 80))
+    assert coefficients is not None and len(coefficients) == 8
+
+
+def test_perspective_transform_between_calibration_points():
+    from image_coordinate_editor.models import blank_point
+
+    system = identity_system()
+    reference = blank_point()
+    reference.update(pixel_x=100, pixel_y=100, world_x=80, world_y=80)
+    system["reference_points"].append(reference)
+    result, _ = pixel_to_world(system, 50, 50)
+    assert result == pytest.approx((44.444444, 44.444444))

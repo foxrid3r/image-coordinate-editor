@@ -1,4 +1,4 @@
-"""
+﻿"""
 PNG Coordinate System Metadata Editor
 =====================================
 
@@ -44,12 +44,12 @@ import math
 import tkinter as tk
 from dataclasses import dataclass
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any
 
 from PIL import Image, ImageTk
 
-from .models import POINT_NAMES, new_coordinate_system
+from .models import POINT_LABELS, POINT_NAMES, blank_point, new_coordinate_system, point_items
 from .png_metadata import (
     METADATA_KEY,
     build_metadata_payload,
@@ -82,11 +82,6 @@ MAX_ZOOM = 32.0
 ZOOM_STEP = 1.15
 FAST_ZOOM_STEP = 1.35
 
-POINT_LABELS = {
-    "origin": "Origin",
-    "x_point": "X Point",
-    "y_point": "Y Point",
-}
 
 # Tk Canvas colors are deliberately high-contrast because the image content is
 # unknown. The active coordinate system uses the brighter primary palette.
@@ -94,13 +89,51 @@ ACTIVE_COLORS = {
     "origin": "#0004fa",
     "x_point": "#ff3b30",  # X axis: red
     "y_point": "#34c759",  # Y axis: green
+    "reference": "#f59e0b",  # reference points: amber
 }
 INACTIVE_COLORS = {
     "origin": "#4537c2",
     "x_point": "#9f3d38",
     "y_point": "#3f874f",
+    "reference": "#9a6700",
 }
 
+
+REFERENCE_COLORS = (
+    "#ff9500",  # orange
+    "#00c7be",  # cyan
+    "#af52de",  # purple
+    "#ff2d55",  # pink
+    "#ffd60a",  # yellow
+    "#64d2ff",  # light blue
+    "#bf5af2",  # violet
+    "#a8e10c",  # lime
+)
+INACTIVE_REFERENCE_COLORS = (
+    "#a85f00", "#007d78", "#71358f", "#a51d3a",
+    "#9d8500", "#347b99", "#743797", "#607f09",
+)
+
+
+def _point_color(point_name: str, is_active: bool) -> str:
+    """Return a stable color for an axis or numbered reference point."""
+    colors = ACTIVE_COLORS if is_active else INACTIVE_COLORS
+    if not point_name.startswith("ref_"):
+        return colors[point_name]
+    try:
+        reference_index = max(0, int(point_name.removeprefix("ref_")) - 1)
+    except ValueError:
+        reference_index = 0
+    palette = REFERENCE_COLORS if is_active else INACTIVE_REFERENCE_COLORS
+    return palette[reference_index % len(palette)]
+
+
+def _contrasting_text_color(background: str) -> str:
+    red = int(background[1:3], 16)
+    green = int(background[3:5], 16)
+    blue = int(background[5:7], 16)
+    brightness = (299 * red + 587 * green + 114 * blue) / 1000
+    return "#000000" if brightness >= 150 else "#ffffff"
 
 @dataclass
 class DisplayTransform:
@@ -149,9 +182,7 @@ class PngCoordinateEditor:
         self.interaction_settle_job: str | None = None
         self.interaction_active = False
         self._affine_cache_key: tuple[Any, ...] | None = None
-        self._affine_cache_coefficients: (
-            tuple[float, float, float, float, float, float] | None
-        ) = None
+        self._affine_cache_coefficients: tuple[float, ...] | None = None
 
         # Persistent image-view state. A None scale is used only briefly
         # after loading an image. The first redraw calculates and stores a
@@ -173,22 +204,16 @@ class PngCoordinateEditor:
 
         self.file_label_var = tk.StringVar(value="No image loaded")
         self.status_var = tk.StringVar(value="Browse to load a PNG image.")
-        self.cursor_pixel_var = tk.StringVar(value="Pixel: —")
-        self.cursor_world_var = tk.StringVar(value="World: —")
-        self.zoom_var = tk.StringVar(value="Zoom: —")
+        self.cursor_pixel_var = tk.StringVar(value="Pixel: --")
+        self.cursor_world_var = tk.StringVar(value="World: --")
+        self.zoom_var = tk.StringVar(value="Zoom: --")
         self.active_instruction_var = tk.StringVar(
-            value="Choose Origin, X Point, or Y Point, then click the image."
+            value="Choose a calibration point, then click the image."
         )
         self.system_name_var = tk.StringVar()
 
         self.point_vars: dict[str, dict[str, tk.StringVar]] = {}
-        for point_name in POINT_NAMES:
-            self.point_vars[point_name] = {
-                "pixel_x": tk.StringVar(),
-                "pixel_y": tk.StringVar(),
-                "world_x": tk.StringVar(),
-                "world_y": tk.StringVar(),
-            }
+        self.point_select_buttons: dict[str, tk.Button] = {}
 
         self._configure_theme()
         self._build_ui()
@@ -325,7 +350,7 @@ class PngCoordinateEditor:
         )
 
         self.zoom_out_button = ttk.Button(
-            toolbar, text="Zoom −", command=self.zoom_out
+            toolbar, text="Zoom -", command=self.zoom_out
         )
         self.zoom_out_button.grid(row=0, column=7, padx=(0, 4))
 
@@ -394,10 +419,7 @@ class PngCoordinateEditor:
 
         ttk.Label(
             instruction_frame,
-            text=(
-                "Wheel: zoom  •  Middle-drag: pan  •  Ctrl+0: fit  •  "
-                "Ctrl+1: 100%  •  Esc: cancel"
-            ),
+            text="Wheel: zoom | Middle-drag: pan | Ctrl+0: fit | Ctrl+1: 100% | Esc: cancel",
             style="Muted.TLabel",
         ).grid(row=0, column=1, padx=(12, 0))
 
@@ -570,102 +592,77 @@ class PngCoordinateEditor:
         ).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(4, 0))
 
     def _build_point_sections(self) -> None:
-        row = 2
-        for point_name in POINT_NAMES:
-            frame = ttk.LabelFrame(
-                self.inspector,
-                text=POINT_LABELS[point_name],
-                style="Section.TLabelframe",
-            )
-            frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-            frame.columnconfigure(1, weight=1)
-            frame.columnconfigure(2, weight=1)
+        self.points_frame = ttk.LabelFrame(
+            self.inspector, text="Calibration Points", style="Section.TLabelframe"
+        )
+        self.points_frame.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        self._rebuild_point_table()
 
-            # Use a classic Tk button here instead of ttk.Button. On Windows,
-            # native ttk themes may ignore custom background colors, making an
-            # active selection mode difficult to see. A Tk button provides
-            # reliable foreground/background feedback across themes.
-            select_button = tk.Button(
-                frame,
-                text=f"Select {POINT_LABELS[point_name]}",
+    def _rebuild_point_table(self) -> None:
+        for child in self.points_frame.winfo_children():
+            child.destroy()
+        self.point_vars = {}
+        self.point_select_buttons = {}
+        system = self._active_system() or new_coordinate_system("")
+        headers = ("Point", "Pixel X", "Pixel Y", "World X", "World Y", "")
+        for column, label in enumerate(headers):
+            ttk.Label(self.points_frame, text=label, anchor="center").grid(
+                row=0, column=column, padx=2, pady=(0, 4), sticky="ew"
+            )
+        for column in range(1, 5):
+            self.points_frame.columnconfigure(column, weight=1)
+        for row, (point_name, label, point) in enumerate(point_items(system), start=1):
+            button = tk.Button(
+                self.points_frame,
+                text=label,
                 command=lambda p=point_name: self.begin_point_selection(p),
-                font=("Segoe UI", 9),
-                relief=tk.RAISED,
-                borderwidth=1,
-                padx=8,
-                pady=5,
+                font=("Segoe UI Semibold", 8),
+                width=7,
+                padx=4,
+                pady=2,
                 cursor="hand2",
+                borderwidth=2,
                 highlightthickness=0,
             )
-            select_button.grid(
-                row=0,
-                column=0,
-                columnspan=3,
-                sticky="ew",
-                pady=(0, 8),
-            )
-            setattr(self, f"{point_name}_select_button", select_button)
-
-            ttk.Label(frame, text="").grid(row=1, column=0)
-            ttk.Label(frame, text="X", anchor="center").grid(
-                row=1, column=1, sticky="ew"
-            )
-            ttk.Label(frame, text="Y", anchor="center").grid(
-                row=1, column=2, sticky="ew"
-            )
-
-            ttk.Label(frame, text="Pixel").grid(row=2, column=0, sticky="w")
-            pixel_x_entry = ttk.Entry(
-                frame,
-                textvariable=self.point_vars[point_name]["pixel_x"],
-                width=12,
-            )
-            pixel_x_entry.grid(row=2, column=1, sticky="ew", padx=(6, 3))
-            pixel_y_entry = ttk.Entry(
-                frame,
-                textvariable=self.point_vars[point_name]["pixel_y"],
-                width=12,
-            )
-            pixel_y_entry.grid(row=2, column=2, sticky="ew", padx=(3, 0))
-
-            ttk.Label(frame, text="Real World").grid(
-                row=3, column=0, sticky="w", pady=(6, 0)
-            )
-            world_x_entry = ttk.Entry(
-                frame,
-                textvariable=self.point_vars[point_name]["world_x"],
-                width=12,
-            )
-            world_x_entry.grid(
-                row=3, column=1, sticky="ew", padx=(6, 3), pady=(6, 0)
-            )
-            world_y_entry = ttk.Entry(
-                frame,
-                textvariable=self.point_vars[point_name]["world_y"],
-                width=12,
-            )
-            world_y_entry.grid(
-                row=3, column=2, sticky="ew", padx=(3, 0), pady=(6, 0)
-            )
-
-            for entry in (
-                pixel_x_entry,
-                pixel_y_entry,
-                world_x_entry,
-                world_y_entry,
-            ):
+            button.grid(row=row, column=0, padx=(0, 3), pady=2, sticky="ew")
+            self.point_select_buttons[point_name] = button
+            variables = {
+                field: tk.StringVar(value=self._format_field_value(point.get(field)))
+                for field in ("pixel_x", "pixel_y", "world_x", "world_y")
+            }
+            self.point_vars[point_name] = variables
+            for column, field in enumerate(variables, start=1):
+                entry = ttk.Entry(self.points_frame, textvariable=variables[field], width=9)
+                entry.grid(row=row, column=column, padx=2, pady=2, sticky="ew")
                 entry.bind("<Return>", self.commit_field_edits)
                 entry.bind("<FocusOut>", self.commit_field_edits)
-
-            row += 1
-
+            if point_name.startswith("ref_"):
+                ttk.Button(
+                    self.points_frame,
+                    text="X",
+                    width=3,
+                    command=lambda p=point_name: self.remove_reference_point(p),
+                ).grid(row=row, column=5, padx=(2, 0), pady=2)
+        self.add_point_button = ttk.Button(
+            self.points_frame, text="Add Point", command=self.add_reference_point
+        )
+        self.add_point_button.grid(
+            row=len(self.point_vars) + 1,
+            column=0,
+            columnspan=6,
+            sticky="ew",
+            pady=(6, 0),
+        )
+        # Rebuilding creates new Tk buttons with theme-default colors. Apply
+        # point colors immediately so every refresh path remains consistent.
+        self._update_point_button_styles()
     def _build_metadata_section(self) -> None:
         frame = ttk.LabelFrame(
             self.inspector,
             text="Embedded Metadata",
             style="Section.TLabelframe",
         )
-        frame.grid(row=5, column=0, sticky="ew", pady=(0, 8))
+        frame.grid(row=3, column=0, sticky="ew", pady=(0, 8))
         frame.columnconfigure(0, weight=1)
 
         ttk.Label(
@@ -967,6 +964,48 @@ class PngCoordinateEditor:
     # Point selection and field editing
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _point_from_key(system: dict[str, Any], point_name: str) -> dict[str, Any]:
+        if point_name in POINT_NAMES:
+            return system[point_name]
+        return system["reference_points"][int(point_name.removeprefix("ref_")) - 1]
+
+    def _point_label(self, point_name: str) -> str:
+        system = self._active_system()
+        if system is not None:
+            for key, label, _point in point_items(system):
+                if key == point_name:
+                    return label
+        return POINT_LABELS.get(point_name, point_name)
+
+    def add_reference_point(self) -> None:
+        system = self._active_system()
+        if system is None or not self.commit_field_edits(show_errors=True):
+            return
+        system.setdefault("reference_points", []).append(blank_point())
+        self.active_point_name = f"ref_{len(system['reference_points'])}"
+        self.dirty = True
+        self._invalidate_affine_cache()
+        self._rebuild_point_table()
+        self._update_controls_enabled()
+        self.status_var.set(f"Added {self._point_label(self.active_point_name)}.")
+
+    def remove_reference_point(self, point_name: str) -> None:
+        system = self._active_system()
+        if system is None:
+            return
+        index = int(point_name.removeprefix("ref_")) - 1
+        references = system.get("reference_points", [])
+        if not 0 <= index < len(references):
+            return
+        del references[index]
+        self.active_point_name = None
+        self.dirty = True
+        self._invalidate_affine_cache()
+        self._rebuild_point_table()
+        self.redraw_preview()
+        self._update_controls_enabled()
+        self.status_var.set("Reference point removed.")
     def begin_point_selection(self, point_name: str) -> None:
         if self.source_image is None or self._active_system() is None:
             return
@@ -978,7 +1017,7 @@ class PngCoordinateEditor:
         self._update_active_instruction()
         self._update_point_button_styles()
         self.status_var.set(
-            f"Click the image to set {POINT_LABELS[point_name]}."
+            f"Click the image to set {self._point_label(point_name)}."
         )
         self.image_canvas.focus_set()
 
@@ -1011,14 +1050,14 @@ class PngCoordinateEditor:
         if system is None:
             return
 
-        point = system[self.active_point_name]
+        point = self._point_from_key(system, self.active_point_name)
         point["pixel_x"] = float(pixel_x)
         point["pixel_y"] = float(pixel_y)
 
         if self.auto_y_perpendicular_var.get() and self.active_point_name in ("origin", "x_point"):
             self._derive_y_from_x(system)
 
-        selected_label = POINT_LABELS[self.active_point_name]
+        selected_label = self._point_label(self.active_point_name)
         self.dirty = True
         self._invalidate_affine_cache()
         self._load_active_system_into_fields()
@@ -1041,12 +1080,12 @@ class PngCoordinateEditor:
 
         updated = copy.deepcopy(system)
 
-        for point_name in POINT_NAMES:
+        for point_name, point_label, _point in point_items(updated):
             for field_name in ("pixel_x", "pixel_y", "world_x", "world_y"):
                 text = self.point_vars[point_name][field_name].get().strip()
 
                 if field_name.startswith("pixel_") and text == "":
-                    updated[point_name][field_name] = None
+                    self._point_from_key(updated, point_name)[field_name] = None
                     continue
 
                 try:
@@ -1055,7 +1094,7 @@ class PngCoordinateEditor:
                     if show_errors:
                         messagebox.showwarning(
                             "Invalid Coordinate",
-                            f"{POINT_LABELS[point_name]} "
+                            f"{point_label} "
                             f"{self._friendly_field_name(field_name)} must be numeric.",
                         )
                     return False
@@ -1071,13 +1110,13 @@ class PngCoordinateEditor:
                             if show_errors:
                                 messagebox.showwarning(
                                     "Pixel Outside Image",
-                                    f"{POINT_LABELS[point_name]} "
+                                    f"{point_label} "
                                     f"{self._friendly_field_name(field_name)} "
                                     f"must be between 0 and {maximum}.",
                                 )
                             return False
 
-                updated[point_name][field_name] = value
+                self._point_from_key(updated, point_name)[field_name] = value
 
         if self.auto_y_perpendicular_var.get():
             self._derive_y_from_x(updated)
@@ -1214,16 +1253,11 @@ class PngCoordinateEditor:
             system = self._active_system()
             if system is None:
                 self.system_name_var.set("")
-                for point_name in POINT_NAMES:
-                    for variable in self.point_vars[point_name].values():
-                        variable.set("")
+                self._rebuild_point_table()
                 return
 
             self.system_name_var.set(str(system["name"]))
-            for point_name in POINT_NAMES:
-                point = system[point_name]
-                for field_name, variable in self.point_vars[point_name].items():
-                    variable.set(self._format_field_value(point.get(field_name)))
+            self._rebuild_point_table()
         finally:
             self._loading_fields = False
 
@@ -1328,14 +1362,8 @@ class PngCoordinateEditor:
             # rejects with "box can't exceed original image size".
             box_left = max(0.0, min(visible_left / reduction_x, float(pyramid_image.width)))
             box_top = max(0.0, min(visible_top / reduction_y, float(pyramid_image.height)))
-            box_right = max(
-                box_left,
-                min(visible_right / reduction_x, float(pyramid_image.width)),
-            )
-            box_bottom = max(
-                box_top,
-                min(visible_bottom / reduction_y, float(pyramid_image.height)),
-            )
+            box_right = max(box_left, min(visible_right / reduction_x, float(pyramid_image.width)))
+            box_bottom = max(box_top, min(visible_bottom / reduction_y, float(pyramid_image.height)))
             box = (box_left, box_top, box_right, box_bottom)
             render_width = max(1, int(math.ceil((visible_right - visible_left) * scale)))
             render_height = max(1, int(math.ceil((visible_bottom - visible_top) * scale)))
@@ -1550,8 +1578,9 @@ class PngCoordinateEditor:
         dash = None if is_active else (5, 4)
 
         canvas_points: dict[str, tuple[float, float] | None] = {}
-        for point_name in POINT_NAMES:
-            point = system[point_name]
+        point_labels: dict[str, str] = {}
+        for point_name, point_label, point in point_items(system):
+            point_labels[point_name] = point_label
             pixel_x = point.get("pixel_x")
             pixel_y = point.get("pixel_y")
             if pixel_x is None or pixel_y is None:
@@ -1600,8 +1629,9 @@ class PngCoordinateEditor:
                 canvas_point[1],
                 point_name,
                 str(system["name"]),
-                colors[point_name],
+                _point_color(point_name, is_active),
                 is_active,
+                point_labels[point_name],
             )
 
     def _draw_marker(
@@ -1612,6 +1642,7 @@ class PngCoordinateEditor:
         system_name: str,
         color: str,
         is_active: bool,
+        point_label: str,
     ) -> None:
         radius = MARKER_RADIUS + (1 if is_active else 0)
         self.image_canvas.create_oval(
@@ -1644,17 +1675,33 @@ class PngCoordinateEditor:
         )
 
         if is_active:
-            label = (
-                f"{system_name}: "
-                f"{'O' if point_name == 'origin' else 'X' if point_name == 'x_point' else 'Y'}"
-            )
+            label = f"{system_name}: {point_label}"
+            label_x = x + radius + 6
+            label_y = y - radius - 4
+            font = ("Segoe UI Semibold", 9)
+            # Tk canvas text has no native outline. Eight dark copies create a
+            # compact stroke that keeps the white label visible on pale images.
+            for offset_x, offset_y in (
+                (-1, -1), (0, -1), (1, -1),
+                (-1, 0),            (1, 0),
+                (-1, 1),  (0, 1),   (1, 1),
+            ):
+                self.image_canvas.create_text(
+                    label_x + offset_x,
+                    label_y + offset_y,
+                    text=label,
+                    fill="#000000",
+                    anchor="sw",
+                    font=font,
+                    tags=("coordinate_overlay",),
+                )
             self.image_canvas.create_text(
-                x + radius + 6,
-                y - radius - 4,
+                label_x,
+                label_y,
                 text=label,
-                fill="white",
+                fill="#ffffff",
                 anchor="sw",
-                font=("Segoe UI Semibold", 9),
+                font=font,
                 tags=("coordinate_overlay",),
             )
 
@@ -1663,8 +1710,8 @@ class PngCoordinateEditor:
             self.source_image is None
             or not self.display_transform.contains_canvas_point(event.x, event.y)
         ):
-            self.cursor_pixel_var.set("Pixel: —")
-            self.cursor_world_var.set("World: —")
+            self.cursor_pixel_var.set("Pixel: --")
+            self.cursor_world_var.set("World: --")
             self.cursor_canvas_position = None
             self.image_canvas.delete("cursor_crosshair")
             return
@@ -1688,15 +1735,15 @@ class PngCoordinateEditor:
 
         world = self._pixel_to_world_for_active_system(image_x, image_y)
         if world is None:
-            self.cursor_world_var.set("World: —")
+            self.cursor_world_var.set("World: --")
         else:
             self.cursor_world_var.set(
                 f"World: X={world[0]:.4f}, Y={world[1]:.4f}"
             )
 
     def on_canvas_leave(self, event: tk.Event | None = None) -> None:
-        self.cursor_pixel_var.set("Pixel: —")
-        self.cursor_world_var.set("World: —")
+        self.cursor_pixel_var.set("Pixel: --")
+        self.cursor_world_var.set("World: --")
         self.cursor_canvas_position = None
         self.image_canvas.delete("cursor_crosshair")
 
@@ -1717,25 +1764,29 @@ class PngCoordinateEditor:
             float(self.image_canvas.winfo_height()),
             self.display_transform.offset_y + self.display_transform.display_height,
         )
-
-        self.image_canvas.create_line(
-            left, canvas_y, right, canvas_y,
-            fill="#f8fafc", width=1, dash=(4, 4),
-            tags=("cursor_crosshair",),
-        )
-        self.image_canvas.create_line(
-            canvas_x, top, canvas_x, bottom,
-            fill="#f8fafc", width=1, dash=(4, 4),
-            tags=("cursor_crosshair",),
-        )
+        lines = ((left, canvas_y, right, canvas_y), (canvas_x, top, canvas_x, bottom))
+        for coordinates in lines:
+            self.image_canvas.create_line(
+                *coordinates,
+                fill="#000000",
+                width=3,
+                tags=("cursor_crosshair",),
+            )
+        for coordinates in lines:
+            self.image_canvas.create_line(
+                *coordinates,
+                fill="#ffffff",
+                width=1,
+                dash=(4, 4),
+                tags=("cursor_crosshair",),
+            )
         self.image_canvas.tag_raise("cursor_crosshair")
-
     def _pixel_to_world_for_active_system(
         self,
         pixel_x: float,
         pixel_y: float,
     ) -> tuple[float, float] | None:
-        """Convert a pixel using cached affine coefficients for the active system."""
+        """Convert a pixel using cached affine or perspective coefficients."""
         system = self._active_system()
         if system is None:
             return None
@@ -1901,8 +1952,7 @@ class PngCoordinateEditor:
         self.auto_y_ccw_radio.configure(state=direction_state)
         self.auto_y_cw_radio.configure(state=direction_state)
 
-        for point_name in POINT_NAMES:
-            button = getattr(self, f"{point_name}_select_button")
+        for point_name, button in self.point_select_buttons.items():
             enabled = system_loaded and not (
                 point_name == "y_point" and self.auto_y_perpendicular_var.get()
             )
@@ -1912,56 +1962,30 @@ class PngCoordinateEditor:
         self._update_active_instruction()
 
     def _update_point_button_styles(self) -> None:
-        """Give point-selection mode unmistakable visual feedback.
+        """Keep point-selection buttons legible and color-coded."""
+        disabled_background = "#4b5563"
+        disabled_foreground = "#d1d5db"
 
-        The point buttons are classic Tk buttons rather than ttk buttons so
-        their colors remain dependable under Windows native and sv_ttk themes.
-        """
-        normal_background = "#3b3b3b"
-        normal_foreground = "#f3f4f6"
-        active_background = "#d97706"
-        active_foreground = "#ffffff"
-        disabled_background = "#2b2b2b"
-        disabled_foreground = "#7f8792"
-
-        for point_name in POINT_NAMES:
-            button = getattr(self, f"{point_name}_select_button")
+        for point_name, button in self.point_select_buttons.items():
             is_active = point_name == self.active_point_name
-            is_auto_y = (
-                point_name == "y_point"
-                and self.auto_y_perpendicular_var.get()
-            )
+            is_auto_y = point_name == "y_point" and self.auto_y_perpendicular_var.get()
             is_disabled = str(button.cget("state")) == tk.DISABLED
-
-            if is_disabled:
-                background = disabled_background
-                foreground = disabled_foreground
-                relief = tk.FLAT
-            elif is_active:
-                background = active_background
-                foreground = active_foreground
-                relief = tk.SUNKEN
-            else:
-                background = normal_background
-                foreground = normal_foreground
-                relief = tk.RAISED
+            point_color = _point_color(point_name, True)
+            point_foreground = _contrasting_text_color(point_color)
 
             button.configure(
-                text=(
-                    "Y Auto-Defined"
-                    if is_auto_y
-                    else f"Select {POINT_LABELS[point_name]}"
-                ),
-                background=background,
-                foreground=foreground,
-                activebackground=(
-                    "#f59e0b" if is_active else "#4b5563"
-                ),
-                activeforeground="#ffffff",
+                text="Y Auto" if is_auto_y else self._point_label(point_name),
+                background=disabled_background if is_disabled else point_color,
+                foreground=disabled_foreground if is_disabled else point_foreground,
+                activebackground=point_color,
+                activeforeground=point_foreground,
                 disabledforeground=disabled_foreground,
-                relief=relief,
+                relief=tk.SUNKEN if is_active else tk.RAISED,
+                borderwidth=3 if is_active else 2,
+                highlightthickness=2 if is_active else 0,
+                highlightbackground="#ffffff",
+                highlightcolor="#ffffff",
             )
-
     def _update_active_instruction(self) -> None:
         if self.source_image is None:
             self.active_instruction_var.set("Browse to load a PNG image.")
@@ -1971,11 +1995,11 @@ class PngCoordinateEditor:
             )
         elif self.active_point_name is None:
             self.active_instruction_var.set(
-                "Choose Origin, X Point, or Y Point, then click the image."
+                "Choose a calibration point, then click the image."
             )
         else:
             self.active_instruction_var.set(
-                f"Selecting {POINT_LABELS[self.active_point_name]} — "
+                f"Selecting {self._point_label(self.active_point_name)} - "
                 "click anywhere inside the image."
             )
 
@@ -2099,4 +2123,3 @@ class PngCoordinateEditor:
     def on_close(self) -> None:
         if self._confirm_discard_unsaved_changes():
             self.root.destroy()
-
