@@ -1,17 +1,24 @@
-"""PNG coordinate metadata serialization."""
+﻿"""PNG coordinate metadata serialization."""
 
 from __future__ import annotations
 
 import json
 import os
 import tempfile
+import warnings
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, PngImagePlugin
 
 from .models import normalize_coordinate_system
-
+# Large engineering images are an expected input. Suppress Pillow's advisory
+# warning while retaining DecompressionBombError for images above its hard limit.
+warnings.filterwarnings(
+    "ignore",
+    category=Image.DecompressionBombWarning,
+    module=r"PIL\.Image",
+)
 METADATA_KEY = "coordinate_systems_json"
 METADATA_SCHEMA = "png-coordinate-systems"
 METADATA_VERSION = 1
@@ -91,3 +98,5 @@ def write_png_with_metadata(source_path: Path, output_path: Path, payload: dict[
                     temporary_path.unlink()
         else:
             original.save(output_path, **save_kwargs)
+
+

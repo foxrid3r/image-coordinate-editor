@@ -8,5 +8,27 @@
     "pixel_x_direction": "right",
     "pixel_y_direction": "down"
   },
-  "coordinate_systems": []
+  "coordinate_systems": [
+    {
+      "name": "coordinate_system_1",
+      "origin": {
+        "pixel_x": 100,
+        "pixel_y": 100,
+        "world_x": 0.0,
+        "world_y": 0.0
+      },
+      "x_point": {
+        "pixel_x": 300,
+        "pixel_y": 100,
+        "world_x": 1.0,
+        "world_y": 0.0
+      },
+      "y_point": {
+        "pixel_x": 100,
+        "pixel_y": 300,
+        "world_x": 0.0,
+        "world_y": 1.0
+      }
+    }
+  ]
 }
