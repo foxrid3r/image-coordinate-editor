@@ -53,3 +53,24 @@ def test_perspective_transform_between_calibration_points():
     system["reference_points"].append(reference)
     result, _ = pixel_to_world(system, 50, 50)
     assert result == pytest.approx((44.444444, 44.444444))
+
+
+def test_world_to_pixel_affine_round_trip():
+    from image_coordinate_editor.transforms import world_to_pixel
+
+    pixel, _ = world_to_pixel(identity_system(), 25, 30)
+    assert pixel == pytest.approx((25, 30))
+
+
+def test_world_to_pixel_perspective_round_trip():
+    from image_coordinate_editor.models import blank_point
+    from image_coordinate_editor.transforms import world_to_pixel
+
+    system = identity_system()
+    reference = blank_point()
+    reference.update(pixel_x=100, pixel_y=100, world_x=80, world_y=80)
+    system["reference_points"].append(reference)
+    world, coefficients = pixel_to_world(system, 35, 65)
+    assert world is not None
+    pixel, _ = world_to_pixel(system, *world, coefficients=coefficients)
+    assert pixel == pytest.approx((35, 65))
