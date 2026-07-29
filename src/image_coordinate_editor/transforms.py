@@ -89,6 +89,38 @@ def pixel_to_world(system: dict[str, Any], pixel_x: float, pixel_y: float, *, co
     return result, coefficients
 
 
+
+def world_to_pixel(
+    system: dict[str, Any],
+    world_x: float,
+    world_y: float,
+    *,
+    coefficients: TransformCoefficients | None = None,
+) -> tuple[tuple[float, float] | None, TransformCoefficients | None]:
+    """Convert a world coordinate back to an image pixel coordinate."""
+    coefficients = coefficients or calculate_transform_coefficients(system)
+    if coefficients is None:
+        return None, None
+
+    if len(coefficients) == 6:
+        a, b, c, d, e, f = coefficients
+        g = h = 0.0
+    else:
+        a, b, c, d, e, f, g, h = coefficients
+
+    matrix_a = a - world_x * g
+    matrix_b = b - world_x * h
+    matrix_c = d - world_y * g
+    matrix_d = e - world_y * h
+    value_x = world_x - c
+    value_y = world_y - f
+    determinant = matrix_a * matrix_d - matrix_b * matrix_c
+    if abs(determinant) < 1e-12:
+        return None, coefficients
+
+    pixel_x = (value_x * matrix_d - matrix_b * value_y) / determinant
+    pixel_y = (matrix_a * value_y - value_x * matrix_c) / determinant
+    return (pixel_x, pixel_y), coefficients
 def _solve_linear_system(matrix: list[list[float]], vector: list[float]) -> list[float] | None:
     size = len(vector)
     augmented = [row[:] + [value] for row, value in zip(matrix, vector)]
