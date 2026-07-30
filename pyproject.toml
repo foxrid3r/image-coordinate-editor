@@ -19,7 +19,7 @@ dev = [
     "ruff>=0.6",
 ]
 
-[project.scripts]
+[project.gui-scripts]
 image-coordinate-editor = "image_coordinate_editor.__main__:main"
 
 [tool.setuptools]
